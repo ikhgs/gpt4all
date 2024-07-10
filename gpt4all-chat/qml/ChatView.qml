@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 import chatlistmodel
 import download
@@ -23,6 +24,10 @@ Rectangle {
 
     property var currentChat: ChatListModel.currentChat
     property var chatModel: currentChat.chatModel
+    property var attachFile: ""
+    property var fileContents: ""
+    property var saveFileContents: ""
+    property var listindex: []
     signal addCollectionViewRequested()
     signal addModelViewRequested()
 
@@ -261,6 +266,7 @@ Rectangle {
                         currentChat.stopGenerating()
                         currentChat.reset();
                         currentChat.modelInfo = ModelList.modelInfo(comboBox.valueAt(index))
+                        attachFile = ""
                     }
 
                     Connections {
@@ -799,6 +805,7 @@ Rectangle {
                                 width: listView.contentItem.width - 15
                                 rows: 3
                                 columns: 2
+                                property int indexOfThisDelegate: index
 
                                 Item {
                                     Layout.row: 0
@@ -853,9 +860,8 @@ Rectangle {
                                             readOnly: true
                                         }
                                         Text {
-                                            visible: name === qsTr("Response: ")
+                                            text: name === qsTr("Response: ") ? currentModelName() : listindex[index]
                                             font.pixelSize: theme.fontSizeLarger
-                                            text: currentModelName()
                                             color: theme.mutedTextColor
                                         }
                                         RowLayout {
@@ -1428,6 +1434,7 @@ Rectangle {
                             Network.trackChatEvent("reset_context", { "length": chatModel.count })
                             currentChat.reset();
                             currentChat.processSystemPrompt();
+                            attachFile = ""
                         }
                         ToolTip.visible: resetContextButton.hovered
                         ToolTip.text: qsTr("Erase and reset chat session")
@@ -1472,7 +1479,7 @@ Rectangle {
                                     chatModel.updateThumbsUpState(index, false);
                                     chatModel.updateThumbsDownState(index, false);
                                     chatModel.updateNewResponse(index, "");
-                                    currentChat.prompt(listElement.prompt)
+                                    currentChat.prompt(saveFileContents + "\n" + listElement.prompt)
                                 }
                             }
                         }
@@ -1649,19 +1656,14 @@ Rectangle {
                         if (textInput.text === "")
                             return
 
+                        listindex[listView.count] = attachFile
                         currentChat.stopGenerating()
                         currentChat.newPromptResponsePair(textInput.text);
-                        currentChat.prompt(textInput.text,
-                                           MySettings.promptTemplate,
-                                           MySettings.maxLength,
-                                           MySettings.topK,
-                                           MySettings.topP,
-                                           MySettings.minP,
-                                           MySettings.temperature,
-                                           MySettings.promptBatchSize,
-                                           MySettings.repeatPenalty,
-                                           MySettings.repeatPenaltyTokens)
+                        currentChat.prompt(fileContents + "\n" + textInput.text);
                         textInput.text = ""
+                        saveFileContents = fileContents
+                        fileContents = ""
+                        attachFile = ""
                     }
 
                     MouseArea {
@@ -1710,7 +1712,7 @@ Rectangle {
                 backgroundColorHovered: theme.sendButtonBackgroundHovered
                 anchors.right: textInputView.right
                 anchors.verticalCenter: textInputView.verticalCenter
-                anchors.rightMargin: 15
+                anchors.rightMargin: 30
                 imageWidth: theme.fontSizeLargest
                 imageHeight: theme.fontSizeLargest
                 visible: !currentChat.isServer && ModelList.selectableModels.count !== 0
@@ -1723,6 +1725,47 @@ Rectangle {
                     textInput.sendMessage()
                 }
             }
+
+            FileDialog {
+                id: fileDialog
+                visible: false
+                acceptLabel: "Attach"
+                nameFilters: ["Text files (*.txt *.md *.rst)", "Code files (*.cpp *.c *.h *.qml *.py)"]
+
+                onAccepted: {
+                        attachFile = fileDialog.selectedFile;
+                        if (attachFile !== "") {
+                            var request = new XMLHttpRequest();
+                            request.onreadystatechange = function() {
+                               if (request.readyState == XMLHttpRequest.DONE) {
+                                   fileContents = request.responseText;
+                               }
+                            }
+                            request.open("GET", attachFile, true);
+                            request.send();
+                        }
+                }
+            }
+
+            MyToolButton {
+                id: attachButton
+                backgroundColor: theme.sendButtonBackground
+                backgroundColorHovered: theme.sendButtonBackgroundHovered
+                anchors.right: textInputView.right
+                anchors.verticalCenter: textInputView.verticalCenter
+                anchors.leftMargin: 15
+                imageWidth: theme.fontSizeLargest
+                imageHeight: theme.fontSizeLargest
+                visible: !currentChat.isServer && ModelList.selectableModels.count !== 0
+                enabled: !currentChat.responseInProgress
+                source: "qrc:/gpt4all/icons/paperclip.svg"
+                Accessible.name: qsTr("Attach file")
+                Accessible.description: qsTr("Attaches/sends a file to the model")
+                onClicked: {
+                    fileDialog.open()
+                }
+            }
+
         }
     }
 }
